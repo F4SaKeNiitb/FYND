@@ -4,7 +4,7 @@ Features: SQLite, Photo Upload, Rate Limiting, Caching, Export, Search, Filters,
           Reply to Reviews, Priority Flagging, Sentiment Trends, Word Cloud, Comparison Reports
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
@@ -61,6 +61,19 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
+
+@app.websocket("/ws/admin")
+async def admin_websocket(websocket: WebSocket):
+    """WebSocket endpoint for real-time admin updates."""
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            # Keep the connection alive; messages from client are ignored for now
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception:
+        ws_manager.disconnect(websocket)
 
 # Directories
 BASE_DIR = Path(__file__).parent
@@ -134,6 +147,32 @@ class SimpleCache:
             self.cache.clear()
 
 analytics_cache = SimpleCache(ttl_seconds=30)
+
+# ==================== WEBSOCKETS ====================
+class WebSocketManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: Dict[str, Any]):
+        """Send a JSON-serializable message to all connected clients."""
+        stale = []
+        for ws in list(self.active_connections):
+            try:
+                await ws.send_text(json.dumps(message))
+            except Exception:
+                stale.append(ws)
+        for ws in stale:
+            self.disconnect(ws)
+
+ws_manager = WebSocketManager()
 
 # ==================== DATABASE ====================
 def get_db():
@@ -413,6 +452,7 @@ async def submit_review(
         
         # Invalidate cache
         analytics_cache.invalidate()
+        await ws_manager.broadcast({"event": "reviews_updated"})
         
         # Background processing for admin data
         asyncio.create_task(process_admin_data_bg(review_id, rating, review))
@@ -451,6 +491,7 @@ async def process_admin_data_bg(review_id: str, rating: int, review_text: str):
         conn.close()
         
         analytics_cache.invalidate()
+        await ws_manager.broadcast({"event": "reviews_updated"})
         print(f"[DEBUG] Background processing complete: {review_id}")
     except Exception as e:
         print(f"[ERROR] Background processing: {e}")
@@ -535,6 +576,7 @@ async def delete_review(review_id: str):
     conn.commit()
     conn.close()
     analytics_cache.invalidate()
+    await ws_manager.broadcast({"event": "reviews_updated"})
     return {"success": True, "message": "Review deleted"}
 
 @app.patch("/api/reviews/{review_id}/flag")
@@ -549,6 +591,7 @@ async def toggle_flag(review_id: str, flag_update: FlagUpdate):
         raise HTTPException(status_code=404, detail="Review not found")
     conn.commit()
     conn.close()
+    await ws_manager.broadcast({"event": "reviews_updated"})
     return {"success": True, "isFlagged": flag_update.is_flagged}
 
 @app.post("/api/reviews/{review_id}/reply")
@@ -565,6 +608,7 @@ async def reply_to_review(review_id: str, reply: AdminReply):
         raise HTTPException(status_code=404, detail="Review not found")
     conn.commit()
     conn.close()
+    await ws_manager.broadcast({"event": "reviews_updated"})
     return {"success": True, "message": "Reply added"}
 
 @app.get("/api/analytics")

@@ -19,7 +19,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts'
-import { API_ENDPOINTS } from '@/lib/api-config'
+import API_BASE_URL, { API_ENDPOINTS } from '@/lib/api-config'
 
 interface Review {
   id: string
@@ -54,6 +54,99 @@ interface ComparisonData {
   change: { total: string; average_rating: string; positive: string; negative: string }
 }
 
+const normalizeComparison = (data: any): ComparisonData | null => {
+  if (!data || typeof data !== 'object') return null
+
+  const thisWeek = data.this_week ?? data.thisWeek
+  const lastWeek = data.last_week ?? data.lastWeek
+  const changes = data.change ?? data.changes
+
+  if (!thisWeek || !lastWeek || !changes) return null
+
+  const toNumber = (value: any, fallback = 0) => {
+    const num = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(num) ? num : fallback
+  }
+
+  const formatPercentChange = (value: any) => {
+    const num = toNumber(value, 0)
+    const sign = num > 0 ? '+' : num < 0 ? '' : ''
+    return `${sign}${num}%`
+  }
+
+  const formatDelta = (value: any) => {
+    const num = toNumber(value, 0)
+    const sign = num > 0 ? '+' : num < 0 ? '' : ''
+    return `${sign}${num}`
+  }
+
+  return {
+    this_week: {
+      total: toNumber(thisWeek.total ?? thisWeek.count),
+      average_rating: toNumber(thisWeek.average_rating ?? thisWeek.avgRating),
+      positive: toNumber(thisWeek.positive),
+      negative: toNumber(thisWeek.negative),
+    },
+    last_week: {
+      total: toNumber(lastWeek.total ?? lastWeek.count),
+      average_rating: toNumber(lastWeek.average_rating ?? lastWeek.avgRating),
+      positive: toNumber(lastWeek.positive),
+      negative: toNumber(lastWeek.negative),
+    },
+    change: {
+      total: typeof (changes.total ?? changes.count) === 'string'
+        ? (changes.total ?? changes.count)
+        : formatPercentChange(changes.total ?? changes.count),
+      average_rating: typeof (changes.average_rating ?? changes.avgRating) === 'string'
+        ? (changes.average_rating ?? changes.avgRating)
+        : formatDelta(changes.average_rating ?? changes.avgRating),
+      positive: typeof changes.positive === 'string' ? changes.positive : formatPercentChange(changes.positive),
+      negative: typeof changes.negative === 'string' ? changes.negative : formatPercentChange(changes.negative),
+    },
+  }
+}
+
+const resolvePhotoUrl = (path?: string | null) => {
+  if (!path) return undefined
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  return `${API_BASE_URL}${path}`
+}
+
+const adminWebsocketUrl = () => {
+  const base = API_BASE_URL.replace(/\/$/, '')
+  const protocol = base.startsWith('https') ? 'wss' : 'ws'
+  return `${base.replace(/^https?/, protocol)}/ws/admin`
+}
+
+const normalizeReview = (review: any): Review => {
+  const parsedActions = Array.isArray(review.recommendedActions)
+    ? review.recommendedActions
+    : typeof review.recommendedActions === 'string'
+      ? (() => {
+          try {
+            const parsed = JSON.parse(review.recommendedActions)
+            return Array.isArray(parsed) ? parsed : []
+          } catch {
+            return []
+          }
+        })()
+      : []
+
+  return {
+    id: review.id,
+    rating: review.rating,
+    review: review.review,
+    timestamp: review.timestamp,
+    aiResponse: review.aiResponse,
+    aiSummary: review.aiSummary,
+    recommendedActions: parsedActions,
+    sentiment: review.sentiment,
+    photo_url: resolvePhotoUrl(review.photo_url ?? review.photoUrl),
+    flagged: review.flagged ?? review.isFlagged ?? false,
+    admin_reply: review.admin_reply ?? review.adminReply,
+  }
+}
+
 export default function AdminDashboard() {
   const [reviews, setReviews] = useState<Review[]>([])
   const [loading, setLoading] = useState(true)
@@ -61,6 +154,8 @@ export default function AdminDashboard() {
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false)
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null)
   const [ratingFilter, setRatingFilter] = useState<number | null>(null)
   const [flaggedOnly, setFlaggedOnly] = useState(false)
   const [wordCloud, setWordCloud] = useState<WordCloudItem[]>([])
@@ -84,7 +179,8 @@ export default function AdminDashboard() {
       const url = `${API_ENDPOINTS.getReviews}?${params.toString()}`
       const res = await fetch(url)
       const data = await res.json()
-      setReviews(data.reviews || [])
+      const normalized = Array.isArray(data.reviews) ? data.reviews.map(normalizeReview) : []
+      setReviews(normalized)
     } catch (error) {
       console.error('Error fetching reviews:', error)
     } finally {
@@ -92,7 +188,7 @@ export default function AdminDashboard() {
     }
   }, [searchQuery, dateFrom, dateTo, ratingFilter, flaggedOnly])
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     try {
       const [wcRes, trendRes, compRes] = await Promise.all([
         fetch(API_ENDPOINTS.wordCloud),
@@ -106,16 +202,16 @@ export default function AdminDashboard() {
       
       setWordCloud(wcData.words || [])
       setSentimentTrends(trendData.trends || [])
-      setComparison(compData)
+      setComparison(normalizeComparison(compData))
     } catch (error) {
       console.error('Error fetching analytics:', error)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchReviews()
     fetchAnalytics()
-  }, [fetchReviews])
+  }, [fetchReviews, fetchAnalytics])
 
   useEffect(() => {
     if (autoRefresh) {
@@ -125,7 +221,41 @@ export default function AdminDashboard() {
       }, 30000)
       return () => clearInterval(interval)
     }
-  }, [autoRefresh, fetchReviews])
+  }, [autoRefresh, fetchReviews, fetchAnalytics])
+
+  useEffect(() => {
+    let ws: WebSocket | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout>
+
+    const connect = () => {
+      const url = adminWebsocketUrl()
+      ws = new WebSocket(url)
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data)
+          if (payload?.event === 'reviews_updated') {
+            fetchReviews()
+            fetchAnalytics()
+          }
+        } catch (err) {
+          console.error('Invalid websocket message', err)
+        }
+      }
+      ws.onclose = () => {
+        reconnectTimer = setTimeout(connect, 3000)
+      }
+      ws.onerror = () => {
+        ws?.close()
+      }
+    }
+
+    connect()
+
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      ws?.close()
+    }
+  }, [fetchReviews, fetchAnalytics])
 
   const handleExport = async (format: 'csv' | 'json') => {
     try {
@@ -144,13 +274,19 @@ export default function AdminDashboard() {
 
   const handleFlag = async (reviewId: string, flag: boolean) => {
     try {
-      await fetch(API_ENDPOINTS.flagReview(reviewId), {
-        method: 'POST',
+      const res = await fetch(API_ENDPOINTS.flagReview(reviewId), {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ flagged: flag }),
+        body: JSON.stringify({ is_flagged: flag }),
       })
-      fetchReviews()
+      if (!res.ok) {
+        throw new Error(`Flag update failed with status ${res.status}`)
+      }
+      setReviews(prev =>
+        prev.map(r => (r.id === reviewId ? { ...r, flagged: flag } : r))
+      )
     } catch (error) {
+      console.error('Error updating flag', error)
       alert('Error updating flag')
     }
   }
@@ -226,6 +362,35 @@ export default function AdminDashboard() {
               >
                 Send Reply
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Preview Modal */}
+      {photoPreviewUrl && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full mx-4 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Photo</h3>
+              <div className="flex items-center gap-3">
+                <a
+                  href={photoPreviewUrl}
+                  download
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
+                  Download
+                </a>
+                <button
+                  onClick={() => setPhotoPreviewUrl(null)}
+                  className="text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="bg-gray-50">
+              <img src={photoPreviewUrl} alt="Review photo" className="w-full max-h-[80vh] object-contain" />
             </div>
           </div>
         </div>
@@ -397,65 +562,77 @@ export default function AdminDashboard() {
               <>
                 {/* Filters */}
                 <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-                  <div className="flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search reviews..."
-                        className="w-full border rounded-lg px-3 py-2 text-black"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">From</label>
-                      <input
-                        type="date"
-                        value={dateFrom}
-                        onChange={(e) => setDateFrom(e.target.value)}
-                        className="border rounded-lg px-3 py-2 text-black"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
-                      <input
-                        type="date"
-                        value={dateTo}
-                        onChange={(e) => setDateTo(e.target.value)}
-                        className="border rounded-lg px-3 py-2 text-black"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Rating</label>
-                      <select
-                        value={ratingFilter || ''}
-                        onChange={(e) => setRatingFilter(e.target.value ? parseInt(e.target.value) : null)}
-                        className="border rounded-lg px-3 py-2 text-black"
-                      >
-                        <option value="">All</option>
-                        {[1, 2, 3, 4, 5].map(r => (
-                          <option key={r} value={r}>{r} Star</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="flaggedOnly"
-                        checked={flaggedOnly}
-                        onChange={(e) => setFlaggedOnly(e.target.checked)}
-                        className="rounded"
-                      />
-                      <label htmlFor="flaggedOnly" className="text-sm text-gray-700">Flagged only</label>
-                    </div>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-gray-900">Filters</h3>
                     <button
-                      onClick={() => { setSearchQuery(''); setDateFrom(''); setDateTo(''); setRatingFilter(null); setFlaggedOnly(false); }}
-                      className="text-sm text-gray-600 hover:text-gray-900"
+                      onClick={() => setFiltersCollapsed((v) => !v)}
+                      className="text-sm text-blue-600 hover:text-blue-800"
                     >
-                      Clear filters
+                      {filtersCollapsed ? 'Show' : 'Hide'}
                     </button>
                   </div>
+
+                  {!filtersCollapsed && (
+                    <div className="flex flex-wrap gap-4 items-end mt-4">
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search reviews..."
+                          className="w-full border rounded-lg px-3 py-2 text-black"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">From</label>
+                        <input
+                          type="date"
+                          value={dateFrom}
+                          onChange={(e) => setDateFrom(e.target.value)}
+                          className="border rounded-lg px-3 py-2 text-black"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
+                        <input
+                          type="date"
+                          value={dateTo}
+                          onChange={(e) => setDateTo(e.target.value)}
+                          className="border rounded-lg px-3 py-2 text-black"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Rating</label>
+                        <select
+                          value={ratingFilter || ''}
+                          onChange={(e) => setRatingFilter(e.target.value ? parseInt(e.target.value) : null)}
+                          className="border rounded-lg px-3 py-2 text-black"
+                        >
+                          <option value="">All</option>
+                          {[1, 2, 3, 4, 5].map(r => (
+                            <option key={r} value={r}>{r} Star</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="flaggedOnly"
+                          checked={flaggedOnly}
+                          onChange={(e) => setFlaggedOnly(e.target.checked)}
+                          className="rounded"
+                        />
+                        <label htmlFor="flaggedOnly" className="text-sm text-gray-700">Flagged only</label>
+                      </div>
+                      <button
+                        onClick={() => { setSearchQuery(''); setDateFrom(''); setDateTo(''); setRatingFilter(null); setFlaggedOnly(false); }}
+                        className="text-sm text-gray-600 hover:text-gray-900"
+                      >
+                        Clear filters
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Reviews List */}
@@ -527,7 +704,18 @@ export default function AdminDashboard() {
                           <div className="space-y-4">
                             <div className="flex gap-4">
                               {review.photo_url && (
-                                <img src={review.photo_url} alt="Review photo" className="w-24 h-24 object-cover rounded-lg" />
+                                <button
+                                  type="button"
+                                  onClick={() => setPhotoPreviewUrl(review.photo_url!)}
+                                  className="block focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 rounded-lg"
+                                  title="Click to view full-size image"
+                                >
+                                  <img
+                                    src={review.photo_url}
+                                    alt="Review photo"
+                                    className="w-24 h-24 object-cover rounded-lg border border-gray-200 hover:shadow-md transition-shadow"
+                                  />
+                                </button>
                               )}
                               <div className="flex-1">
                                 <p className="text-sm font-medium text-gray-700 mb-1">User Review:</p>
