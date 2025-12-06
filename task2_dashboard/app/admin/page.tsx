@@ -236,7 +236,7 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold text-gray-900">📊 Admin Dashboard</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
               <div className="flex items-center gap-2 text-sm">
                 <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
                   Live
@@ -254,13 +254,13 @@ export default function AdminDashboard() {
             </div>
             <div className="flex items-center gap-4">
               <button onClick={() => handleExport('csv')} className="text-sm text-gray-600 hover:text-gray-900">
-                📥 CSV
+                Export CSV
               </button>
               <button onClick={() => handleExport('json')} className="text-sm text-gray-600 hover:text-gray-900">
-                📥 JSON
+                Export JSON
               </button>
               <button onClick={() => { fetchReviews(); fetchAnalytics(); }} className="text-sm text-gray-600 hover:text-gray-900">
-                🔄 Refresh
+                Refresh Data
               </button>
               <button onClick={() => router.push('/')} className="text-sm text-blue-600 hover:text-blue-800">
                 ← User Dashboard
@@ -310,7 +310,7 @@ export default function AdminDashboard() {
                     <p className="text-3xl font-bold text-gray-900">{reviews.length}</p>
                   </div>
                   <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                    <span className="text-2xl">📝</span>
+                    <span className="text-sm font-semibold text-blue-700">REV</span>
                   </div>
                 </div>
               </div>
@@ -319,10 +319,10 @@ export default function AdminDashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-gray-600">Average Rating</p>
-                    <p className="text-3xl font-bold text-gray-900">{averageRating} ⭐</p>
+                    <p className="text-3xl font-bold text-gray-900">{averageRating} / 5</p>
                   </div>
                   <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
-                    <span className="text-2xl">⭐</span>
+                    <span className="text-sm font-semibold text-yellow-700">AVG</span>
                   </div>
                 </div>
               </div>
@@ -336,7 +336,7 @@ export default function AdminDashboard() {
                     </p>
                   </div>
                   <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                    <span className="text-2xl">😊</span>
+                    <span className="text-sm font-semibold text-green-700">POS</span>
                   </div>
                 </div>
               </div>
@@ -350,7 +350,7 @@ export default function AdminDashboard() {
                     </p>
                   </div>
                   <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                    <span className="text-2xl">🚩</span>
+                    <span className="text-sm font-semibold text-red-700">FLAG</span>
                   </div>
                 </div>
               </div>
@@ -495,7 +495,7 @@ export default function AdminDashboard() {
                               </span>
                               {review.flagged && (
                                 <span className="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
-                                  🚩 Flagged
+                                  Flagged
                                 </span>
                               )}
                             </div>
@@ -537,18 +537,18 @@ export default function AdminDashboard() {
 
                             {review.admin_reply && (
                               <div className="bg-green-50 rounded-lg p-4">
-                                <p className="text-sm font-medium text-green-900 mb-1">💬 Admin Reply:</p>
+                                <p className="text-sm font-medium text-green-900 mb-1">Admin Reply:</p>
                                 <p className="text-green-800">{review.admin_reply}</p>
                               </div>
                             )}
 
                             <div className="bg-blue-50 rounded-lg p-4">
-                              <p className="text-sm font-medium text-blue-900 mb-1">📊 AI Summary:</p>
+                              <p className="text-sm font-medium text-blue-900 mb-1">AI Summary:</p>
                               <p className="text-blue-800">{review.aiSummary}</p>
                             </div>
 
                             <div className="bg-purple-50 rounded-lg p-4">
-                              <p className="text-sm font-medium text-purple-900 mb-2">💡 Recommended Actions:</p>
+                              <p className="text-sm font-medium text-purple-900 mb-2">Recommended Actions:</p>
                               <ul className="space-y-1">
                                 {review.recommendedActions.map((action, idx) => (
                                   <li key={idx} className="text-purple-800 text-sm flex items-start gap-2">
