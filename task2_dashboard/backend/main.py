@@ -164,7 +164,7 @@ Respond with only one word."""
             prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=0.1,
-                max_output_tokens=10,
+                max_output_tokens=1024,
             )
         )
         print(f"[DEBUG] Gemini response received for sentiment")
@@ -198,7 +198,7 @@ Write a brief 2-sentence response that:
             prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=0.7,
-                max_output_tokens=150,
+                max_output_tokens=2048,
             )
         )
         
@@ -242,7 +242,7 @@ Be factual and note the key points."""
             prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=0.5,
-                max_output_tokens=100,
+                max_output_tokens=2048,
             )
         )
         
@@ -281,7 +281,7 @@ Keep each item under 10 words."""
             prompt,
             generation_config=genai.types.GenerationConfig(
                 temperature=0.7,
-                max_output_tokens=150,
+                max_output_tokens=2048,
             )
         )
         
@@ -351,7 +351,7 @@ async def debug_gemini():
             "Say hello",
             generation_config=genai.types.GenerationConfig(
                 temperature=0.1,
-                max_output_tokens=20,
+                max_output_tokens=1024,
             )
         )
         
