@@ -274,7 +274,7 @@ async def generate_recommended_actions(rating: int, review: str, sentiment: str)
     prompt = f"""A customer left a {rating}-star review with {sentiment} sentiment.
 
 List 2-3 specific action items for the business team based on the actual sentiment (not just the rating).
-Keep each item under 10 words."""
+Keep each item under 10 words. Return only the action items, one per line, no numbering or bullets."""
 
     try:
         response = model.generate_content(
@@ -288,15 +288,24 @@ Keep each item under 10 words."""
         content = get_response_text(response)
         
         if content:
-            actions = [
-                line.lstrip('-*0123456789.) ').strip()
-                for line in content.split('\n')
-                if line.strip()
-            ]
-            actions = [a for a in actions if a and len(a) > 3][:3]
+            # Clean up action items
+            actions = []
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                # Skip intro lines
+                if any(skip in line.lower() for skip in ['here are', 'action items', 'following', 'based on']):
+                    continue
+                # Remove markdown formatting, bullets, numbers
+                line = line.lstrip('-*•0123456789.) ')
+                line = line.replace('**', '').replace('*', '').strip()
+                # Skip if too short or too long
+                if len(line) > 5 and len(line) < 100:
+                    actions.append(line)
             
             if actions:
-                return actions
+                return actions[:3]
     except Exception as e:
         print(f"Error generating actions: {e}")
     
