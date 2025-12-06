@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { API_ENDPOINTS } from '@/lib/api-config'
 
@@ -8,9 +8,32 @@ export default function Home() {
   const [rating, setRating] = useState(0)
   const [hoveredRating, setHoveredRating] = useState(0)
   const [review, setReview] = useState('')
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [response, setResponse] = useState<any>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image too large. Maximum size is 5MB.')
+        return
+      }
+      setPhoto(file)
+      setPhotoPreview(URL.createObjectURL(file))
+    }
+  }
+
+  const removePhoto = () => {
+    setPhoto(null)
+    setPhotoPreview(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,30 +47,34 @@ export default function Home() {
     setResponse(null)
 
     try {
+      const formData = new FormData()
+      formData.append('rating', rating.toString())
+      formData.append('review', review)
+      formData.append('timestamp', new Date().toISOString())
+      if (photo) {
+        formData.append('photo', photo)
+      }
+
       const res = await fetch(API_ENDPOINTS.submitReview, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          rating,
-          review,
-          timestamp: new Date().toISOString(),
-        }),
+        body: formData,
       })
 
       const data = await res.json()
       
       if (res.ok) {
         setResponse(data)
-        // Reset form after 5 seconds
         setTimeout(() => {
           setRating(0)
           setReview('')
+          setPhoto(null)
+          setPhotoPreview(null)
           setResponse(null)
         }, 5000)
+      } else if (res.status === 429) {
+        alert('Too many requests. Please wait a moment and try again.')
       } else {
-        alert('Error submitting review: ' + data.error)
+        alert('Error submitting review: ' + (data.detail || data.error))
       }
     } catch (error) {
       alert('Error submitting review. Please try again.')
@@ -148,6 +175,49 @@ export default function Home() {
               </p>
             </div>
 
+            {/* Photo Upload */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Add a photo (optional)
+              </label>
+              <div className="flex items-center gap-4">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoChange}
+                  className="hidden"
+                  id="photo-upload"
+                />
+                <label
+                  htmlFor="photo-upload"
+                  className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Choose Photo
+                </label>
+                {photoPreview && (
+                  <div className="relative">
+                    <img
+                      src={photoPreview}
+                      alt="Preview"
+                      className="w-20 h-20 object-cover rounded-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={removePhoto}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm hover:bg-red-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Max 5MB. JPG, PNG, GIF, WebP</p>
+            </div>
+
             {/* Submit Button */}
             <button
               type="submit"
@@ -186,6 +256,11 @@ export default function Home() {
                   <p className="text-gray-700 leading-relaxed">
                     {response.aiResponse}
                   </p>
+                  {response.rateLimitRemaining !== undefined && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      Submissions remaining this minute: {response.rateLimitRemaining}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
