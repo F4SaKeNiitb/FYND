@@ -1,0 +1,21 @@
+# Vercel Deployment Configuration
+# Place this file in the root directory
+
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "task2_dashboard/package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "task2_dashboard/$1"
+    }
+  ],
+  "env": {
+    "GOOGLE_API_KEY": "@google-api-key"
+  }
+}

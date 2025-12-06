@@ -1,0 +1,65 @@
+# Gitignore for FYND Project
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Task 1 specific
+task1_rating_prediction/.env
+task1_rating_prediction/yelp.csv
+task1_rating_prediction/yelp_sample.csv
+task1_rating_prediction/yelp-reviews-dataset.zip
+task1_rating_prediction/results_*.csv
+task1_rating_prediction/comparison_results.csv
+task1_rating_prediction/evaluation_report.json
+
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+.cache/
+*.log
+
+# Task 2 specific
+task2_dashboard/.env.local
+task2_dashboard/.env
+task2_dashboard/data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Misc
+*.zip
+*.tar.gz
+.kaggle/
