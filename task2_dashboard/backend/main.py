@@ -14,12 +14,23 @@ import asyncio
 from pathlib import Path
 import google.generativeai as genai
 from dotenv import load_dotenv
+import traceback
 
 # Load environment variables
 load_dotenv()
 
+# Debug: Check API key
+api_key = os.getenv("GOOGLE_API_KEY")
+print(f"[DEBUG] API Key loaded: {'Yes' if api_key else 'No'}")
+print(f"[DEBUG] API Key length: {len(api_key) if api_key else 0}")
+print(f"[DEBUG] API Key prefix: {api_key[:10]}..." if api_key and len(api_key) > 10 else "[DEBUG] API Key too short or missing")
+
 # Configure Gemini AI
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+if api_key:
+    genai.configure(api_key=api_key)
+    print("[DEBUG] Gemini configured successfully")
+else:
+    print("[ERROR] GOOGLE_API_KEY not found in environment variables!")
 
 # Safety settings to avoid unnecessary blocking
 safety_settings = [
@@ -128,6 +139,7 @@ def get_response_text(response) -> str:
         
         return ""
     except Exception as e:
+        print(f"[DEBUG] Error in get_response_text: {e}")
         return ""
 
 
@@ -145,6 +157,7 @@ Rules:
 Respond with only one word."""
 
     try:
+        print(f"[DEBUG] Calling Gemini for sentiment analysis...")
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
@@ -152,11 +165,14 @@ Respond with only one word."""
                 max_output_tokens=10,
             )
         )
+        print(f"[DEBUG] Gemini response received for sentiment")
         text = get_response_text(response).strip().lower()
+        print(f"[DEBUG] Sentiment result: {text}")
         if text in ["positive", "negative", "inappropriate"]:
             return text
-    except:
-        pass
+    except Exception as e:
+        print(f"[ERROR] Sentiment analysis failed: {e}")
+        print(f"[ERROR] Traceback: {traceback.format_exc()}")
     return "unknown"
 
 
@@ -308,6 +324,38 @@ Keep each item under 10 words."""
 async def root():
     """Health check endpoint"""
     return {"status": "healthy", "service": "Yelp Feedback API"}
+
+
+@app.get("/api/debug")
+async def debug_gemini():
+    """Debug endpoint to test Gemini API"""
+    api_key = os.getenv("GOOGLE_API_KEY")
+    result = {
+        "api_key_exists": bool(api_key),
+        "api_key_length": len(api_key) if api_key else 0,
+        "api_key_prefix": api_key[:10] + "..." if api_key and len(api_key) > 10 else "N/A",
+        "gemini_test": None,
+        "error": None
+    }
+    
+    try:
+        print("[DEBUG] Testing Gemini API...")
+        response = model.generate_content(
+            "Say 'Hello, Gemini is working!' in exactly those words.",
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.1,
+                max_output_tokens=20,
+            )
+        )
+        result["gemini_test"] = get_response_text(response)
+        print(f"[DEBUG] Gemini test result: {result['gemini_test']}")
+    except Exception as e:
+        result["error"] = str(e)
+        result["traceback"] = traceback.format_exc()
+        print(f"[ERROR] Gemini test failed: {e}")
+        print(f"[ERROR] Traceback: {traceback.format_exc()}")
+    
+    return result
 
 
 @app.post("/api/submit-review", response_model=ReviewResponse)
