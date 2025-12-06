@@ -40,10 +40,12 @@ safety_settings = [
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
 
+# Use gemini-2.5-flash
 model = genai.GenerativeModel(
     'gemini-2.5-flash',
     safety_settings=safety_settings
 )
+print("[DEBUG] Using model: gemini-2.5-flash")
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -334,21 +336,53 @@ async def debug_gemini():
         "api_key_exists": bool(api_key),
         "api_key_length": len(api_key) if api_key else 0,
         "api_key_prefix": api_key[:10] + "..." if api_key and len(api_key) > 10 else "N/A",
+        "model_name": "gemini-1.5-flash",
         "gemini_test": None,
+        "raw_response": None,
+        "candidates": None,
+        "finish_reason": None,
+        "safety_ratings": None,
         "error": None
     }
     
     try:
         print("[DEBUG] Testing Gemini API...")
         response = model.generate_content(
-            "Say 'Hello, Gemini is working!' in exactly those words.",
+            "Say hello",
             generation_config=genai.types.GenerationConfig(
                 temperature=0.1,
                 max_output_tokens=20,
             )
         )
-        result["gemini_test"] = get_response_text(response)
-        print(f"[DEBUG] Gemini test result: {result['gemini_test']}")
+        
+        # Capture raw response details
+        result["raw_response"] = str(response)
+        
+        if response.candidates:
+            candidate = response.candidates[0]
+            result["candidates"] = len(response.candidates)
+            result["finish_reason"] = str(candidate.finish_reason) if hasattr(candidate, 'finish_reason') else None
+            
+            # Get safety ratings
+            if hasattr(candidate, 'safety_ratings'):
+                result["safety_ratings"] = [
+                    {"category": str(r.category), "probability": str(r.probability)} 
+                    for r in candidate.safety_ratings
+                ]
+            
+            # Try to get content
+            if hasattr(candidate, 'content') and candidate.content.parts:
+                result["gemini_test"] = candidate.content.parts[0].text
+        else:
+            result["candidates"] = 0
+            
+        # Also try direct text access
+        try:
+            result["direct_text"] = response.text
+        except Exception as te:
+            result["direct_text_error"] = str(te)
+            
+        print(f"[DEBUG] Gemini test result: {result}")
     except Exception as e:
         result["error"] = str(e)
         result["traceback"] = traceback.format_exc()
